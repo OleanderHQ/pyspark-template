@@ -1,0 +1,14 @@
+[project]
+name = "oleander-pyspark-template"
+version = "0.1.0"
+description = "Add your description here"
+readme = "README.md"
+requires-python = ">=3.11,<3.12"
+dependencies = [
+    "venv-pack>=0.2.0",
+]
+
+[dependency-groups]
+dev = [
+    "pyspark==3.5.5",
+]
