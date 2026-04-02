@@ -2,25 +2,38 @@
 #   uv sync
 #   uv run python main.py
 #
-# Build the deployment artifact with Docker for Oleander-managed Spark.
-# Output: out/environment.tar.gz
+# Build deployment artifacts for Oleander-managed Spark.
+# Outputs: out/pyfiles.zip, out/environment.tar.gz
 
 PYTHON_VERSION := 3.11
 DOCKER_PLATFORM := linux/amd64
 DOCKER_TARGET := artifact
 OUT_DIR := out
-ARTIFACT_NAME := environment.tar.gz
-ARTIFACT_PATH := $(OUT_DIR)/$(ARTIFACT_NAME)
+PYFILES_NAME := pyfiles.zip
+PYFILES_PATH := $(OUT_DIR)/$(PYFILES_NAME)
+PYFILES_SOURCES := $(shell find mylib -type f ! -path '*/__pycache__/*' ! -name '*.pyc' | sort)
+ENVIRONMENT_NAME := environment.tar.gz
+ENVIRONMENT_PATH := $(OUT_DIR)/$(ENVIRONMENT_NAME)
 
-.PHONY: all clean rebuild
+.PHONY: all clean rebuild pyfiles environment
 
-all: $(ARTIFACT_PATH)
-	@echo "Artifact ready at $(ARTIFACT_PATH)"
+all: pyfiles environment
+	@echo "Artifacts ready at $(PYFILES_PATH) and $(ENVIRONMENT_PATH)"
+
+pyfiles: $(PYFILES_PATH)
+	@echo "Pyfiles ready at $(PYFILES_PATH)"
+
+environment: $(ENVIRONMENT_PATH)
+	@echo "Environment ready at $(ENVIRONMENT_PATH)"
 
 $(OUT_DIR):
 	mkdir -p $(OUT_DIR)
 
-$(ARTIFACT_PATH): Dockerfile pyproject.toml uv.lock | $(OUT_DIR)
+$(PYFILES_PATH): Makefile mylib $(PYFILES_SOURCES) | $(OUT_DIR)
+	rm -f $@
+	zip -rq $@ mylib -x '*/__pycache__/*' '*.pyc'
+
+$(ENVIRONMENT_PATH): Makefile Dockerfile pyproject.toml uv.lock | $(OUT_DIR)
 	docker build \
 		--platform $(DOCKER_PLATFORM) \
 		--build-arg PYTHON_VERSION=$(PYTHON_VERSION) \

@@ -1,5 +1,8 @@
+from mylib import greeting
+
+
 def main():
-    print("Hello from pyspark-template!")
+    greeting()
 
 
 if __name__ == "__main__":
