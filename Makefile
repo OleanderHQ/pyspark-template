@@ -11,11 +11,11 @@ DOCKER_TARGET := artifact
 OUT_DIR := out
 PYFILES_NAME := pyfiles.zip
 PYFILES_PATH := $(OUT_DIR)/$(PYFILES_NAME)
-PYFILES_SOURCES := $(shell find mylib -type f ! -path '*/__pycache__/*' ! -name '*.pyc' | sort)
+PYFILES_SOURCES := $(shell find app -type f ! -path '*/__pycache__/*' ! -name '*.pyc' | sort)
 ENVIRONMENT_NAME := environment.tar.gz
 ENVIRONMENT_PATH := $(OUT_DIR)/$(ENVIRONMENT_NAME)
 
-.PHONY: all clean rebuild pyfiles environment
+.PHONY: all clean rebuild pyfiles environment upload
 
 all: pyfiles environment
 	@echo "Artifacts ready at $(PYFILES_PATH) and $(ENVIRONMENT_PATH)"
@@ -29,9 +29,9 @@ environment: $(ENVIRONMENT_PATH)
 $(OUT_DIR):
 	mkdir -p $(OUT_DIR)
 
-$(PYFILES_PATH): Makefile mylib $(PYFILES_SOURCES) | $(OUT_DIR)
+$(PYFILES_PATH): Makefile app $(PYFILES_SOURCES) | $(OUT_DIR)
 	rm -f $@
-	zip -rq $@ mylib -x '*/__pycache__/*' '*.pyc'
+	zip -rq $@ app -x '*/__pycache__/*' '*.pyc'
 
 $(ENVIRONMENT_PATH): Makefile Dockerfile pyproject.toml uv.lock | $(OUT_DIR)
 	docker build \
@@ -40,6 +40,11 @@ $(ENVIRONMENT_PATH): Makefile Dockerfile pyproject.toml uv.lock | $(OUT_DIR)
 		--target $(DOCKER_TARGET) \
 		--output type=local,dest=$(OUT_DIR) \
 		.
+
+upload: all
+	@echo "oleander spark jobs upload entrypoint.py \\"
+	@echo "  --py-files $(PYFILES_PATH) \\"
+	@echo "  --virtualenv $(ENVIRONMENT_PATH)"
 
 clean:
 	rm -rf $(OUT_DIR)
