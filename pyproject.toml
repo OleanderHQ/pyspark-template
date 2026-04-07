@@ -11,5 +11,4 @@ dependencies = [
 [dependency-groups]
 dev = [
     "pyspark==3.5.5",
-    "pytest>=8.0",
 ]
