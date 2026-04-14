@@ -29,6 +29,7 @@ def _parse_jdbc_url(database_url: str) -> tuple[str, dict[str, str]]:
         "user": parsed.username or "",
         "password": parsed.password or "",
         "driver": "org.postgresql.Driver",
+        "stringtype": "unspecified",
     }
     return jdbc_url, props
 
@@ -108,13 +109,13 @@ def _make_batch_handler(config: _Config):
             }
             print(json.dumps(summary, default=str))
 
+            batch_df.writeTo(config.iceberg_table).append()
             batch_df.write.jdbc(
                 config.jdbc_url,
                 table=config.postgres_table,
                 mode="append",
                 properties=config.jdbc_props,
             )
-            batch_df.writeTo(config.iceberg_table).append()
         finally:
             batch_df.unpersist()
 

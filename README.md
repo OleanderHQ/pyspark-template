@@ -95,6 +95,14 @@ oleander spark jobs submit entrypoint.py \
   --namespace <namespace> \
   --name <job-name> \
   --wait
+
+```bash
+oleander spark jobs submit entrypoint.py \
+  --namespace streaming \
+  --name public_stream_word_count \
+  --mode STREAMING \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.7,org.postgresql:postgresql:42.7.4 \
+  --wait
 ```
 
 Adjust `--namespace`, `--name`, and any other submit options for your job.
