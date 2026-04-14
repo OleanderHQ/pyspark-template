@@ -80,23 +80,15 @@ Build the artifacts:
 make
 ```
 
-Upload the Spark job entrypoint together with the Python module archive and virtual environment:
-
 ```bash
+# upload
 oleander spark jobs upload entrypoint.py \
   --py-files out/pyfiles.zip \
   --virtualenv out/environment.tar.gz
 ```
 
-Submit the uploaded job:
-
 ```bash
-oleander spark jobs submit entrypoint.py \
-  --namespace <namespace> \
-  --name <job-name> \
-  --wait
-
-```bash
+# run
 oleander spark jobs submit entrypoint.py \
   --namespace streaming \
   --name public_stream_word_count \
