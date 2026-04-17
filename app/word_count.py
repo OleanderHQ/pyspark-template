@@ -17,6 +17,10 @@ class StreamMessage(NamedTuple):
     kafka_topic: str
     kafka_partition: int
     kafka_offset: int
+    latitude: float | None
+    longitude: float | None
+    city: str | None
+    country: str | None
 
 
 def count_words(text: str) -> int:
@@ -42,6 +46,10 @@ def coerce_messages(rows: list) -> list[StreamMessage]:
             kafka_topic=row.kafka_topic,
             kafka_partition=row.kafka_partition,
             kafka_offset=row.kafka_offset,
+            latitude=row.latitude,
+            longitude=row.longitude,
+            city=row.city,
+            country=row.country,
         )
         for row in rows
     ]

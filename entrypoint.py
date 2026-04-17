@@ -8,7 +8,7 @@ from urllib.parse import urlparse
 
 from pyspark.sql import DataFrame, SparkSession
 from pyspark.sql.functions import col, from_json
-from pyspark.sql.types import IntegerType, StringType, StructField, StructType
+from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, StructType
 
 from app.word_count import STREAM_KEY, build_batch_word_deltas
 
@@ -51,6 +51,10 @@ MESSAGE_SCHEMA = StructType([
     StructField("word_count", IntegerType()),
     StructField("created_at", StringType()),
     StructField("source", StringType()),
+    StructField("latitude", DoubleType()),
+    StructField("longitude", DoubleType()),
+    StructField("city", StringType()),
+    StructField("country", StringType()),
 ])
 
 _BATCH_METRICS_SQL = (
@@ -203,7 +207,8 @@ def _make_batch_handler(config: _Config):
             }
             print(json.dumps(summary, default=str))
 
-            batch_df.writeTo(config.iceberg_table).append()
+            iceberg_df = batch_df.drop("latitude", "longitude", "city", "country")
+            iceberg_df.writeTo(config.iceberg_table).append()
             batch_df.write.jdbc(
                 config.jdbc_url,
                 table=config.postgres_table,
@@ -280,6 +285,10 @@ def main() -> None:
                 col("kafka_topic"),
                 col("kafka_partition"),
                 col("kafka_offset"),
+                col("msg.latitude").alias("latitude"),
+                col("msg.longitude").alias("longitude"),
+                col("msg.city").alias("city"),
+                col("msg.country").alias("country"),
             )
         )
 

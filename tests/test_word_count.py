@@ -41,6 +41,10 @@ class PublicStreamSparkTests(unittest.TestCase):
                 kafka_topic="public-stream",
                 kafka_partition=0,
                 kafka_offset=12,
+                latitude=37.7749,
+                longitude=-122.4194,
+                city="San Francisco",
+                country="US",
             )
         ]
 
@@ -58,6 +62,10 @@ class PublicStreamSparkTests(unittest.TestCase):
                     kafka_topic="public-stream",
                     kafka_partition=0,
                     kafka_offset=12,
+                    latitude=37.7749,
+                    longitude=-122.4194,
+                    city="San Francisco",
+                    country="US",
                 )
             ],
         )
@@ -73,6 +81,10 @@ class PublicStreamSparkTests(unittest.TestCase):
                 kafka_topic="public-stream",
                 kafka_partition=0,
                 kafka_offset=1,
+                latitude=51.5074,
+                longitude=-0.1278,
+                city="London",
+                country="GB",
             ),
             StreamMessage(
                 id="m2",
@@ -83,6 +95,10 @@ class PublicStreamSparkTests(unittest.TestCase):
                 kafka_topic="public-stream",
                 kafka_partition=0,
                 kafka_offset=2,
+                latitude=None,
+                longitude=None,
+                city=None,
+                country=None,
             ),
         ]
 
