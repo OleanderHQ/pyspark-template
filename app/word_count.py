@@ -5,6 +5,10 @@ import re
 from collections import Counter
 from typing import NamedTuple
 
+from vaderSentiment.vaderSentiment import SentimentIntensityAnalyzer
+
+_analyzer = SentimentIntensityAnalyzer()
+
 STREAM_KEY = os.getenv("PUBLIC_STREAM_KAFKA_TOPIC", "public-stream")
 
 
@@ -21,6 +25,16 @@ class StreamMessage(NamedTuple):
     longitude: float | None
     city: str | None
     country: str | None
+    sentiment_score: float
+
+
+def compute_sentiment(text: str) -> float:
+    """Return a sentiment score in [0, 1] where 0.5 is neutral.
+
+    Uses VADER's compound score (range -1 to 1) normalized to 0–1.
+    """
+    compound = _analyzer.polarity_scores(text)["compound"]
+    return (compound + 1.0) / 2.0
 
 
 def count_words(text: str) -> int:
@@ -50,6 +64,7 @@ def coerce_messages(rows: list) -> list[StreamMessage]:
             longitude=row.longitude,
             city=row.city,
             country=row.country,
+            sentiment_score=compute_sentiment(row.body),
         )
         for row in rows
     ]

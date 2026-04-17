@@ -7,10 +7,10 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.functions import col, from_json
+from pyspark.sql.functions import col, from_json, udf
 from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, StructType
 
-from app.word_count import STREAM_KEY, build_batch_word_deltas
+from app.word_count import STREAM_KEY, build_batch_word_deltas, compute_sentiment
 
 
 def _require_env(name: str) -> str:
@@ -56,6 +56,8 @@ MESSAGE_SCHEMA = StructType([
     StructField("city", StringType()),
     StructField("country", StringType()),
 ])
+
+_sentiment_udf = udf(compute_sentiment, DoubleType())
 
 _BATCH_METRICS_SQL = (
     "SELECT "
@@ -207,7 +209,8 @@ def _make_batch_handler(config: _Config):
             }
             print(json.dumps(summary, default=str))
 
-            iceberg_df = batch_df.drop("latitude", "longitude", "city", "country")
+            batch_df = batch_df.withColumn("sentiment_score", _sentiment_udf(col("body")))
+            iceberg_df = batch_df.drop("latitude", "longitude", "city", "country", "sentiment_score")
             iceberg_df.writeTo(config.iceberg_table).append()
             batch_df.write.jdbc(
                 config.jdbc_url,

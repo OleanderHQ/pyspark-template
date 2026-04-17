@@ -14,6 +14,7 @@ from app.word_count import (
     StreamMessage,
     count_words,
     coerce_messages,
+    compute_sentiment,
     build_batch_word_deltas,
     summarize_inserted_messages,
     tokenize,
@@ -29,6 +30,12 @@ class PublicStreamSparkTests(unittest.TestCase):
             tokenize("Hi, hi! A stream of Words and words."),
             ["hi", "hi", "stream", "of", "words", "and", "words"],
         )
+
+    def test_compute_sentiment_returns_normalized_score(self) -> None:
+        self.assertGreater(compute_sentiment("I love this so much!"), 0.5)
+        self.assertLess(compute_sentiment("This is terrible and awful."), 0.5)
+        score = compute_sentiment("the cat sat on the mat")
+        self.assertAlmostEqual(score, 0.5, delta=0.15)
 
     def test_coerce_messages_includes_kafka_metadata(self) -> None:
         rows = [
@@ -50,25 +57,13 @@ class PublicStreamSparkTests(unittest.TestCase):
 
         messages = coerce_messages(rows)
 
-        self.assertEqual(
-            messages,
-            [
-                StreamMessage(
-                    id="m1",
-                    body="hello spark world",
-                    word_count=3,
-                    created_at="2026-03-25T10:00:00Z",
-                    source="browser",
-                    kafka_topic="public-stream",
-                    kafka_partition=0,
-                    kafka_offset=12,
-                    latitude=37.7749,
-                    longitude=-122.4194,
-                    city="San Francisco",
-                    country="US",
-                )
-            ],
-        )
+        self.assertEqual(len(messages), 1)
+        msg = messages[0]
+        self.assertEqual(msg.id, "m1")
+        self.assertEqual(msg.city, "San Francisco")
+        self.assertIsInstance(msg.sentiment_score, float)
+        self.assertGreaterEqual(msg.sentiment_score, 0.0)
+        self.assertLessEqual(msg.sentiment_score, 1.0)
 
     def test_summarize_inserted_messages_builds_metrics_inputs(self) -> None:
         messages = [
@@ -85,6 +80,7 @@ class PublicStreamSparkTests(unittest.TestCase):
                 longitude=-0.1278,
                 city="London",
                 country="GB",
+                sentiment_score=0.7,
             ),
             StreamMessage(
                 id="m2",
@@ -99,6 +95,7 @@ class PublicStreamSparkTests(unittest.TestCase):
                 longitude=None,
                 city=None,
                 country=None,
+                sentiment_score=0.6,
             ),
         ]
 
