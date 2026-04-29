@@ -19,9 +19,30 @@ from app.word_count import (
     summarize_inserted_messages,
     tokenize,
 )
+from entrypoint import _iceberg_rewrite_data_files_sql, _should_compact_batch
 
 
 class PublicStreamSparkTests(unittest.TestCase):
+    def test_should_compact_batch_uses_completed_batch_interval(self) -> None:
+        self.assertFalse(_should_compact_batch(batch_id=0, interval_batches=0))
+        self.assertFalse(_should_compact_batch(batch_id=3, interval_batches=5))
+        self.assertTrue(_should_compact_batch(batch_id=4, interval_batches=5))
+
+    def test_iceberg_rewrite_data_files_sql_targets_table_namespace(self) -> None:
+        sql = _iceberg_rewrite_data_files_sql(
+            "oleander.default.public_stream_messages",
+            134_217_728,
+        )
+
+        self.assertEqual(
+            sql,
+            "CALL oleander.system.rewrite_data_files("
+            "table => 'default.public_stream_messages', "
+            "strategy => 'binpack', "
+            "options => map('target-file-size-bytes', '134217728')"
+            ")",
+        )
+
     def test_count_words_handles_apostrophes_and_dashes(self) -> None:
         self.assertEqual(count_words("Oleander's stream keeps-on flowing"), 4)
 

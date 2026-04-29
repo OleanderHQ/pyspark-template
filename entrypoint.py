@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 import sys
 from dataclasses import dataclass
 from urllib.parse import urlparse
@@ -19,6 +20,17 @@ def _require_env(name: str) -> str:
         print(f"ERROR: {name} is required", file=sys.stderr)
         sys.exit(2)
     return value
+
+
+def _env_int(name: str, default: int) -> int:
+    raw_value = os.getenv(name)
+    if raw_value is None:
+        return default
+    try:
+        return int(raw_value)
+    except ValueError:
+        print(f"ERROR: {name} must be an integer", file=sys.stderr)
+        sys.exit(2)
 
 
 def _parse_jdbc_url(database_url: str) -> tuple[str, dict[str, str]]:
@@ -43,6 +55,8 @@ class _Config:
     state_table: str
     iceberg_table: str
     checkpoint_location: str
+    iceberg_compaction_interval_batches: int
+    iceberg_compaction_target_file_size_bytes: int
 
 
 MESSAGE_SCHEMA = StructType([
@@ -68,6 +82,8 @@ _BATCH_METRICS_SQL = (
     "FROM __batch_messages"
 )
 
+_ICEBERG_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
+
 
 def _kafka_options() -> dict[str, str]:
     opts: dict[str, str] = {
@@ -88,6 +104,73 @@ def _kafka_options() -> dict[str, str]:
         )
 
     return opts
+
+
+def _split_iceberg_table_id(table: str) -> tuple[str, str]:
+    """Return (catalog, namespace.table) for a three-part Iceberg table name."""
+    parts = table.split(".")
+    if len(parts) != 3 or not all(_ICEBERG_IDENTIFIER_RE.fullmatch(part) for part in parts):
+        raise ValueError(
+            "ICEBERG_TABLE must be a catalog.namespace.table identifier, "
+            f"got {table!r}"
+        )
+    catalog, namespace, table_name = parts
+    return catalog, f"{namespace}.{table_name}"
+
+
+def _iceberg_rewrite_data_files_sql(
+    table: str,
+    target_file_size_bytes: int,
+) -> str:
+    catalog, table_without_catalog = _split_iceberg_table_id(table)
+    return (
+        f"CALL {catalog}.system.rewrite_data_files("
+        f"table => '{table_without_catalog}', "
+        "strategy => 'binpack', "
+        "options => map("
+        f"'target-file-size-bytes', '{target_file_size_bytes}'"
+        ")"
+        ")"
+    )
+
+
+def _should_compact_batch(batch_id: int, interval_batches: int) -> bool:
+    return interval_batches > 0 and (batch_id + 1) % interval_batches == 0
+
+
+def _compact_iceberg_table(spark: SparkSession, config: _Config, batch_id: int) -> None:
+    if not _should_compact_batch(batch_id, config.iceberg_compaction_interval_batches):
+        return
+
+    sql = _iceberg_rewrite_data_files_sql(
+        config.iceberg_table,
+        config.iceberg_compaction_target_file_size_bytes,
+    )
+    try:
+        result = spark.sql(sql).collect()
+        print(
+            json.dumps(
+                {
+                    "event": "iceberg_compaction_completed",
+                    "table": config.iceberg_table,
+                    "batch_id": batch_id,
+                    "result": [row.asDict(recursive=True) for row in result],
+                },
+                default=str,
+            )
+        )
+    except Exception as exc:
+        print(
+            json.dumps(
+                {
+                    "event": "iceberg_compaction_failed",
+                    "table": config.iceberg_table,
+                    "batch_id": batch_id,
+                    "error": str(exc),
+                }
+            ),
+            file=sys.stderr,
+        )
 
 
 _SELECT_STATE_SQL = (
@@ -209,10 +292,16 @@ def _make_batch_handler(config: _Config):
             }
             print(json.dumps(summary, default=str))
 
-            batch_df = batch_df.withColumn("sentiment_score", _sentiment_udf(col("body")))
-            iceberg_df = batch_df.drop("latitude", "longitude", "city", "country", "sentiment_score")
+            enriched_df = batch_df.withColumn("sentiment_score", _sentiment_udf(col("body")))
+            iceberg_df = enriched_df.drop(
+                "latitude",
+                "longitude",
+                "city",
+                "country",
+                "sentiment_score",
+            )
             iceberg_df.writeTo(config.iceberg_table).append()
-            batch_df.write.jdbc(
+            enriched_df.write.jdbc(
                 config.jdbc_url,
                 table=config.postgres_table,
                 mode="append",
@@ -227,6 +316,7 @@ def _make_batch_handler(config: _Config):
                 summary,
                 word_deltas,
             )
+            _compact_iceberg_table(batch_df.sparkSession, config, batch_id)
         finally:
             batch_df.unpersist()
 
@@ -249,6 +339,14 @@ def main() -> None:
         checkpoint_location=os.getenv(
             "PUBLIC_STREAM_CHECKPOINT_LOCATION",
             "/tmp/oleander-public-stream-checkpoint",
+        ),
+        iceberg_compaction_interval_batches=_env_int(
+            "ICEBERG_COMPACTION_INTERVAL_BATCHES",
+            5,
+        ),
+        iceberg_compaction_target_file_size_bytes=_env_int(
+            "ICEBERG_COMPACTION_TARGET_FILE_SIZE_BYTES",
+            134_217_728,
         ),
     )
 

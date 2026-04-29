@@ -119,6 +119,8 @@ Set these in the oleander UI or API before submitting the job.
 | `PUBLIC_STREAM_CHECKPOINT_LOCATION` | Durable checkpoint path (e.g. `s3a://bucket/checkpoint`). Defaults to `/tmp/oleander-public-stream-checkpoint` which does not survive restarts. |
 | `POSTGRES_TABLE` | Target Postgres table name (default `public_stream_messages`) |
 | `ICEBERG_TABLE` | Fully-qualified Iceberg table for raw messages (default `oleander.default.public_stream_messages`) |
+| `ICEBERG_COMPACTION_INTERVAL_BATCHES` | Run Iceberg `rewrite_data_files` every N completed micro-batches. Defaults to `5`. |
+| `ICEBERG_COMPACTION_TARGET_FILE_SIZE_BYTES` | Target file size for Iceberg compaction. Defaults to `134217728` (128 MiB). |
 
 ### Conditional (Kafka authentication)
 
