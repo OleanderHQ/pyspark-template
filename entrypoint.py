@@ -1,10 +1,7 @@
 from pyspark.sql import SparkSession
 
-from mylib import greeting
-
 
 def main():
-    greeting()
     spark = SparkSession.builder.appName("oleander-pyspark-template").getOrCreate()
 
     try:
