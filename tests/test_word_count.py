@@ -53,7 +53,7 @@ class PublicStreamSparkTests(unittest.TestCase):
 
     def test_late_messages_sql_interpolates_threshold(self) -> None:
         sql = _late_messages_sql(10)
-        self.assertIn("INTERVAL 10 MINUTES", sql)
+        self.assertIn("INTERVAL 10 SECONDS", sql)
         self.assertIn("event_time IS NOT NULL", sql)
 
     def test_local_tmp_checkpoint_detection_handles_file_uris(self) -> None:

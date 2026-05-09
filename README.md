@@ -116,31 +116,43 @@ Set these in the oleander UI or API before submitting the job.
 
 | Variable | Description |
 | --- | --- |
-| `PUBLIC_STREAM_CHECKPOINT_LOCATION` | Durable checkpoint path (e.g. `s3a://bucket/checkpoint`). Overrides `spark.oleander.app.state.dir`; otherwise defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v1`. |
-| `SENTIMENT_WINDOW_CHECKPOINT_LOCATION` | Durable checkpoint path for the sentiment window stream (e.g. `s3a://bucket/sentiment-window-checkpoint`). Overrides `spark.oleander.app.state.dir`; otherwise defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v1`. |
+| `PUBLIC_STREAM_CHECKPOINT_LOCATION` | Durable checkpoint path (e.g. `s3a://bucket/checkpoint`). Overrides `spark.oleander.app.state.dir`; otherwise defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v2`. |
+| `ANALYTICS_CHECKPOINT_LOCATION` | Durable checkpoint path for deferred Iceberg/state/metrics processing. Overrides `spark.oleander.app.state.dir`; otherwise defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/analytics-v2`. |
+| `SENTIMENT_WINDOW_CHECKPOINT_LOCATION` | Durable checkpoint path for the sentiment window stream (e.g. `s3a://bucket/sentiment-window-checkpoint`). Overrides `spark.oleander.app.state.dir`; otherwise defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v3`. |
 | `ALLOW_LOCAL_STREAMING_CHECKPOINTS` | Allow `/tmp` checkpoint paths on non-local Spark masters. Defaults to `1`; set to `0` to require cluster-visible checkpoint storage. |
 | `POSTGRES_TABLE` | Target Postgres table name (default `public_stream_messages`) |
+| `COMPUTE_POSTGRES_SENTIMENT` | Compute VADER sentiment in the low-latency Postgres message path. Defaults to `true`, matching the original fast stream behavior. Set to `false` only if the Python UDF becomes the bottleneck and neutral `0.5` scores are acceptable in the message table. |
+| `POSTGRES_JDBC_BATCH_SIZE` | JDBC insert batch size for Postgres message writes. Defaults to `5000`. |
+| `POSTGRES_REWRITE_BATCHED_INSERTS` | Enables Postgres JDBC batched insert rewriting. Defaults to `true`. |
 | `SENTIMENT_WINDOW_TABLE` | Target Postgres table for sentiment windows (default `public_stream_sentiment_windows`) |
 | `ICEBERG_TABLE` | Fully-qualified Iceberg table for raw messages (default `oleander.default.public_stream_messages`) |
 | `ICEBERG_COMPACTION_INTERVAL_BATCHES` | Run Iceberg `rewrite_data_files` every N completed micro-batches. Defaults to `5`. |
 | `ICEBERG_COMPACTION_TARGET_FILE_SIZE_BYTES` | Target file size for Iceberg compaction. Defaults to `134217728` (128 MiB). |
-| `WATERMARK_THRESHOLD_MINUTES` | Event-time watermark and late-message threshold. Defaults to `1`. |
-| `SENTIMENT_WINDOW_MINUTES` | Sentiment aggregation window size. Defaults to `15`. |
+| `WATERMARK_THRESHOLD_SECONDS` | Event-time watermark for sentiment windows and late-message reporting threshold. Defaults to `1`. Falls back to `WATERMARK_THRESHOLD_MINUTES * 60` if the seconds variable is unset. |
+| `SENTIMENT_WINDOW_MINUTES` | Sentiment aggregation window size. Defaults to `1` so append-mode windows are visible quickly. |
+| `ANALYTICS_TRIGGER_INTERVAL` | Processing trigger interval for deferred Iceberg/state/metrics work. Defaults to `60 seconds`. |
+| `SENTIMENT_WINDOW_TRIGGER_INTERVAL` | Processing trigger interval for the deferred sentiment window query. Defaults to `5 seconds`. |
 
 If a stream fails with a missing checkpoint state file such as
 `file:/tmp/.../state/.../*.delta does not exist`, restart it with fresh checkpoint
 locations on shared storage. Do not reuse the broken `/tmp` checkpoint path:
 
 ```bash
-PUBLIC_STREAM_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v1
-SENTIMENT_WINDOW_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v1
+PUBLIC_STREAM_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v2
+SENTIMENT_WINDOW_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v3
 ```
 
-On Oleander, the job derives both checkpoint locations from
+On Oleander, the job derives checkpoint locations from
 `spark.conf.get("spark.oleander.app.state.dir")` when explicit checkpoint env vars
 are not set. For EMR Serverless, the sentiment window stream requires the resolved
 checkpoint path to be on shared storage such as S3. The job role must be able to
-list, read, write, and delete objects under both checkpoint prefixes.
+list, read, write, and delete objects under the checkpoint prefixes.
+
+Postgres message writes use a direct JDBC append for low latency. Keep one live
+stream per checkpoint and avoid replaying already-inserted offsets into the same
+`POSTGRES_TABLE`, because duplicate primary keys will abort the micro-batch.
+Sentiment windows use Spark append mode, so each window is written after the
+window end plus the configured watermark delay.
 
 ### Conditional (Kafka authentication)
 
