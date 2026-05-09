@@ -8,10 +8,28 @@ from dataclasses import dataclass
 from urllib.parse import urlparse
 
 from pyspark.sql import DataFrame, SparkSession
-from pyspark.sql.functions import col, from_json, udf
+from pyspark.sql.functions import (
+    avg as spark_avg,
+    col,
+    count,
+    current_timestamp,
+    from_json,
+    sum as spark_sum,
+    to_timestamp,
+    udf,
+    when,
+    window,
+)
 from pyspark.sql.types import DoubleType, IntegerType, StringType, StructField, StructType
 
 from app.word_count import STREAM_KEY, build_batch_word_deltas, compute_sentiment
+
+_DEFAULT_PUBLIC_STREAM_CHECKPOINT_LOCATION = (
+    "s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v1"
+)
+_DEFAULT_SENTIMENT_WINDOW_CHECKPOINT_LOCATION = (
+    "s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v1"
+)
 
 
 def _require_env(name: str) -> str:
@@ -31,6 +49,59 @@ def _env_int(name: str, default: int) -> int:
     except ValueError:
         print(f"ERROR: {name} must be an integer", file=sys.stderr)
         sys.exit(2)
+
+
+def _is_local_tmp_checkpoint(location: str) -> bool:
+    loc = location.strip()
+    parsed = urlparse(loc)
+    if parsed.scheme == "file":
+        return parsed.path.startswith("/tmp/")
+    return loc == "/tmp" or loc.startswith("/tmp/")
+
+
+def _fail_if_local_checkpoint_on_cluster(
+    spark: SparkSession, location: str, env_var_name: str
+) -> None:
+    """Structured streaming checkpoints must be on shared storage when running distributed.
+
+    Default ``/tmp/...`` paths are local to each container; stateful operators (e.g. window
+    aggregation) write ``*.delta`` files that other executors must read. On EMR Serverless or
+    any cluster, use ``s3://``, ``s3a://``, or ``hdfs://`` via env vars such as
+    ``PUBLIC_STREAM_CHECKPOINT_LOCATION`` / ``SENTIMENT_WINDOW_CHECKPOINT_LOCATION``.
+    """
+    if os.getenv("ALLOW_LOCAL_STREAMING_CHECKPOINTS", "1") == "1":
+        return
+    master = spark.sparkContext.master
+    if master.startswith("local"):
+        return
+    if _is_local_tmp_checkpoint(location):
+        print(
+            f"ERROR: {env_var_name}={location!r} points at local disk under /tmp. "
+            "Executors cannot share this path; windowed streaming state will fail with "
+            "missing *.delta files. Set a cluster-visible URI "
+            f"(e.g. {env_var_name}=s3://your-bucket/prefix/checkpoints). "
+            f"spark.master={master!r}. "
+            "Local checkpoints are allowed by default; set "
+            "ALLOW_LOCAL_STREAMING_CHECKPOINTS=0 to enforce shared checkpoint storage.",
+            file=sys.stderr,
+        )
+        sys.exit(3)
+
+
+def _require_shared_stateful_checkpoint(
+    spark: SparkSession, location: str, env_var_name: str
+) -> None:
+    master = spark.sparkContext.master
+    if master.startswith("local") or not _is_local_tmp_checkpoint(location):
+        return
+    print(
+        f"ERROR: {env_var_name}={location!r} is local to each executor under "
+        f"spark.master={master!r}. Sentiment windows use Spark's state store, so "
+        "the checkpoint must be on shared storage such as "
+        f"{env_var_name}=s3a://your-bucket/prefix/checkpoints.",
+        file=sys.stderr,
+    )
+    sys.exit(3)
 
 
 def _parse_jdbc_url(database_url: str) -> tuple[str, dict[str, str]]:
@@ -57,6 +128,10 @@ class _Config:
     checkpoint_location: str
     iceberg_compaction_interval_batches: int
     iceberg_compaction_target_file_size_bytes: int
+    watermark_threshold_minutes: int
+    sentiment_window_minutes: int
+    sentiment_window_table: str
+    sentiment_window_checkpoint_location: str
 
 
 MESSAGE_SCHEMA = StructType([
@@ -73,14 +148,62 @@ MESSAGE_SCHEMA = StructType([
 
 _sentiment_udf = udf(compute_sentiment, DoubleType())
 
+# Must match the Iceberg table schema (streaming-only columns like event_time /
+# kafka_timestamp are kept on the batch DataFrame for metrics / JDBC only).
+_ICEBERG_APPEND_COLUMNS = (
+    "id",
+    "body",
+    "word_count",
+    "created_at",
+    "source",
+    "kafka_topic",
+    "kafka_partition",
+    "kafka_offset",
+)
+
+# Align with oleander `public_stream_messages` (no event_time / kafka_timestamp).
+def _postgres_messages_df(enriched_df: DataFrame) -> DataFrame:
+    return enriched_df.select(
+        col("id"),
+        to_timestamp(col("created_at")).alias("created_at"),
+        current_timestamp().alias("updated_at"),
+        col("body"),
+        col("word_count"),
+        col("source"),
+        col("kafka_topic"),
+        col("kafka_partition"),
+        col("kafka_offset"),
+        col("latitude"),
+        col("longitude"),
+        col("city"),
+        col("country"),
+        col("sentiment_score"),
+    )
+
+
 _BATCH_METRICS_SQL = (
     "SELECT "
     "  COUNT(*) AS message_count, "
     "  COALESCE(SUM(word_count), 0) AS total_word_delta, "
     "  MAX(word_count) AS longest_message_word_count, "
-    "  MAX_BY(id, kafka_offset) AS latest_message_id "
+    "  MAX_BY(id, kafka_offset) AS latest_message_id, "
+    "  MAX(event_time) AS batch_max_event_time, "
+    "  MIN(event_time) AS batch_min_event_time, "
+    "  ROUND(AVG(UNIX_TIMESTAMP(kafka_timestamp) - UNIX_TIMESTAMP(event_time)), 2)"
+    "    AS avg_producer_latency_seconds, "
+    "  SUM(CASE WHEN event_time IS NULL THEN 1 ELSE 0 END) AS null_event_time_count "
     "FROM __batch_messages"
 )
+
+
+def _late_messages_sql(threshold_minutes: int) -> str:
+    return (
+        "SELECT COUNT(*) AS late_count FROM __batch_messages "
+        "WHERE event_time < ("
+        f"  SELECT MAX(event_time) - INTERVAL {threshold_minutes} MINUTES"
+        "   FROM __batch_messages"
+        ") AND event_time IS NOT NULL"
+    )
 
 _ICEBERG_IDENTIFIER_RE = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -266,6 +389,36 @@ def _update_stream_state(
         conn.close()
 
 
+def _sentiment_windows_df(enriched_df: DataFrame, config: _Config) -> DataFrame:
+    return (
+        enriched_df
+        .filter(col("event_time").isNotNull())
+        .withColumn("is_positive", when(col("sentiment_score") > 0.5, 1).otherwise(0))
+        .groupBy(window(col("event_time"), f"{config.sentiment_window_minutes} minutes"))
+        .agg(
+            spark_sum("is_positive").alias("positive_count"),
+            (count("*") - spark_sum("is_positive")).alias("negative_count"),
+            count("*").alias("total_count"),
+            spark_avg("sentiment_score").alias("avg_sentiment"),
+        )
+        .select(
+            col("window.start").alias("window_start"),
+            col("window.end").alias("window_end"),
+            col("positive_count"),
+            col("negative_count"),
+            col("total_count"),
+            col("avg_sentiment"),
+        )
+    )
+
+
+def _build_sentiment_window_stream(parsed: DataFrame, config: _Config) -> DataFrame:
+    return _sentiment_windows_df(
+        parsed.withColumn("sentiment_score", _sentiment_udf(col("body"))),
+        config,
+    )
+
+
 def _make_batch_handler(config: _Config):
     """Return a foreachBatch handler closed over resolved config."""
 
@@ -281,6 +434,10 @@ def _make_batch_handler(config: _Config):
 
             metrics = batch_df.sparkSession.sql(_BATCH_METRICS_SQL).first()
 
+            late_count = batch_df.sparkSession.sql(
+                _late_messages_sql(config.watermark_threshold_minutes)
+            ).first()["late_count"]
+
             summary = {
                 "stream_key": config.stream_key,
                 "message_count": metrics["message_count"],
@@ -289,19 +446,18 @@ def _make_batch_handler(config: _Config):
                 "longest_message_word_count": metrics["longest_message_word_count"],
                 "word_counts": word_deltas,
                 "batch_id": batch_id,
+                "batch_max_event_time": metrics["batch_max_event_time"],
+                "batch_min_event_time": metrics["batch_min_event_time"],
+                "avg_producer_latency_seconds": metrics["avg_producer_latency_seconds"],
+                "null_event_time_count": metrics["null_event_time_count"],
+                "late_message_count": late_count,
             }
             print(json.dumps(summary, default=str))
 
             enriched_df = batch_df.withColumn("sentiment_score", _sentiment_udf(col("body")))
-            iceberg_df = enriched_df.drop(
-                "latitude",
-                "longitude",
-                "city",
-                "country",
-                "sentiment_score",
-            )
+            iceberg_df = enriched_df.select(*_ICEBERG_APPEND_COLUMNS)
             iceberg_df.writeTo(config.iceberg_table).append()
-            enriched_df.write.jdbc(
+            _postgres_messages_df(enriched_df).write.jdbc(
                 config.jdbc_url,
                 table=config.postgres_table,
                 mode="append",
@@ -338,7 +494,7 @@ def main() -> None:
         ),
         checkpoint_location=os.getenv(
             "PUBLIC_STREAM_CHECKPOINT_LOCATION",
-            "/tmp/oleander-public-stream-checkpoint",
+            _DEFAULT_PUBLIC_STREAM_CHECKPOINT_LOCATION,
         ),
         iceberg_compaction_interval_batches=_env_int(
             "ICEBERG_COMPACTION_INTERVAL_BATCHES",
@@ -348,6 +504,21 @@ def main() -> None:
             "ICEBERG_COMPACTION_TARGET_FILE_SIZE_BYTES",
             134_217_728,
         ),
+        watermark_threshold_minutes=_env_int(
+            "WATERMARK_THRESHOLD_MINUTES",
+            1,
+        ),
+        sentiment_window_minutes=_env_int(
+            "SENTIMENT_WINDOW_MINUTES",
+            15,
+        ),
+        sentiment_window_table=os.getenv(
+            "SENTIMENT_WINDOW_TABLE", "public_stream_sentiment_windows"
+        ),
+        sentiment_window_checkpoint_location=os.getenv(
+            "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
+            _DEFAULT_SENTIMENT_WINDOW_CHECKPOINT_LOCATION,
+        ),
     )
 
     spark = (
@@ -356,6 +527,14 @@ def main() -> None:
         .getOrCreate()
     )
 
+    _fail_if_local_checkpoint_on_cluster(
+        spark, config.checkpoint_location, "PUBLIC_STREAM_CHECKPOINT_LOCATION"
+    )
+    _require_shared_stateful_checkpoint(
+        spark,
+        config.sentiment_window_checkpoint_location,
+        "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
+    )
     try:
         raw_stream = (
             spark.readStream.format("kafka")
@@ -370,37 +549,58 @@ def main() -> None:
                 "topic AS kafka_topic",
                 "partition AS kafka_partition",
                 "offset AS kafka_offset",
+                "timestamp AS kafka_timestamp",
             )
             .select(
                 from_json(col("json_value"), MESSAGE_SCHEMA).alias("msg"),
                 col("kafka_topic"),
                 col("kafka_partition"),
                 col("kafka_offset"),
+                col("kafka_timestamp"),
             )
             .select(
                 col("msg.id").alias("id"),
                 col("msg.body").alias("body"),
                 col("msg.word_count").alias("word_count"),
                 col("msg.created_at").alias("created_at"),
+                to_timestamp(col("msg.created_at")).alias("event_time"),
                 col("msg.source").alias("source"),
                 col("kafka_topic"),
                 col("kafka_partition"),
                 col("kafka_offset"),
+                col("kafka_timestamp"),
                 col("msg.latitude").alias("latitude"),
                 col("msg.longitude").alias("longitude"),
                 col("msg.city").alias("city"),
                 col("msg.country").alias("country"),
             )
+            .withWatermark("event_time", f"{config.watermark_threshold_minutes} minutes")
         )
 
-        query = (
+        message_query = (
             parsed.writeStream
             .foreachBatch(_make_batch_handler(config))
             .option("checkpointLocation", config.checkpoint_location)
             .start()
         )
 
-        query.awaitTermination()
+        sentiment_query = (
+            _build_sentiment_window_stream(parsed, config)
+            .writeStream
+            .outputMode("append")
+            .foreachBatch(
+                lambda df, _: df.write.jdbc(
+                    config.jdbc_url,
+                    table=config.sentiment_window_table,
+                    mode="append",
+                    properties=config.jdbc_props,
+                )
+            )
+            .option("checkpointLocation", config.sentiment_window_checkpoint_location)
+            .start()
+        )
+
+        spark.streams.awaitAnyTermination()
     finally:
         spark.stop()
 

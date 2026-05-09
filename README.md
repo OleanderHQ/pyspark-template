@@ -116,11 +116,29 @@ Set these in the oleander UI or API before submitting the job.
 
 | Variable | Description |
 | --- | --- |
-| `PUBLIC_STREAM_CHECKPOINT_LOCATION` | Durable checkpoint path (e.g. `s3a://bucket/checkpoint`). Defaults to `/tmp/oleander-public-stream-checkpoint` which does not survive restarts. |
+| `PUBLIC_STREAM_CHECKPOINT_LOCATION` | Durable checkpoint path (e.g. `s3a://bucket/checkpoint`). Defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v1`. |
+| `SENTIMENT_WINDOW_CHECKPOINT_LOCATION` | Durable checkpoint path for the sentiment window stream (e.g. `s3a://bucket/sentiment-window-checkpoint`). Defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v1`. |
+| `ALLOW_LOCAL_STREAMING_CHECKPOINTS` | Allow `/tmp` checkpoint paths on non-local Spark masters. Defaults to `1`; set to `0` to require cluster-visible checkpoint storage. |
 | `POSTGRES_TABLE` | Target Postgres table name (default `public_stream_messages`) |
+| `SENTIMENT_WINDOW_TABLE` | Target Postgres table for sentiment windows (default `public_stream_sentiment_windows`) |
 | `ICEBERG_TABLE` | Fully-qualified Iceberg table for raw messages (default `oleander.default.public_stream_messages`) |
 | `ICEBERG_COMPACTION_INTERVAL_BATCHES` | Run Iceberg `rewrite_data_files` every N completed micro-batches. Defaults to `5`. |
 | `ICEBERG_COMPACTION_TARGET_FILE_SIZE_BYTES` | Target file size for Iceberg compaction. Defaults to `134217728` (128 MiB). |
+| `WATERMARK_THRESHOLD_MINUTES` | Event-time watermark and late-message threshold. Defaults to `1`. |
+| `SENTIMENT_WINDOW_MINUTES` | Sentiment aggregation window size. Defaults to `15`. |
+
+If a stream fails with a missing checkpoint state file such as
+`file:/tmp/.../state/.../*.delta does not exist`, restart it with fresh checkpoint
+locations on shared storage. Do not reuse the broken `/tmp` checkpoint path:
+
+```bash
+PUBLIC_STREAM_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v1
+SENTIMENT_WINDOW_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v1
+```
+
+For EMR Serverless, the sentiment window stream requires `SENTIMENT_WINDOW_CHECKPOINT_LOCATION`
+to be on shared storage such as S3. The job role must be able to list, read, write,
+and delete objects under both checkpoint prefixes.
 
 ### Conditional (Kafka authentication)
 

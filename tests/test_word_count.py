@@ -19,7 +19,13 @@ from app.word_count import (
     summarize_inserted_messages,
     tokenize,
 )
-from entrypoint import _iceberg_rewrite_data_files_sql, _should_compact_batch
+from entrypoint import (
+    _iceberg_rewrite_data_files_sql,
+    _is_local_tmp_checkpoint,
+    _late_messages_sql,
+    _require_shared_stateful_checkpoint,
+    _should_compact_batch,
+)
 
 
 class PublicStreamSparkTests(unittest.TestCase):
@@ -41,6 +47,43 @@ class PublicStreamSparkTests(unittest.TestCase):
             "strategy => 'binpack', "
             "options => map('target-file-size-bytes', '134217728')"
             ")",
+        )
+
+    def test_late_messages_sql_interpolates_threshold(self) -> None:
+        sql = _late_messages_sql(10)
+        self.assertIn("INTERVAL 10 MINUTES", sql)
+        self.assertIn("event_time IS NOT NULL", sql)
+
+    def test_local_tmp_checkpoint_detection_handles_file_uris(self) -> None:
+        self.assertTrue(_is_local_tmp_checkpoint("/tmp/stream-checkpoint"))
+        self.assertTrue(_is_local_tmp_checkpoint("file:/tmp/stream-checkpoint"))
+        self.assertTrue(_is_local_tmp_checkpoint("file:///tmp/stream-checkpoint"))
+        self.assertFalse(_is_local_tmp_checkpoint("s3a://bucket/stream-checkpoint"))
+        self.assertFalse(_is_local_tmp_checkpoint("/var/tmp/stream-checkpoint"))
+
+    def test_stateful_checkpoint_requires_shared_storage_on_cluster(self) -> None:
+        fake_spark = SimpleNamespace(
+            sparkContext=SimpleNamespace(master="custom:emr-serverless")
+        )
+
+        with self.assertRaises(SystemExit) as context:
+            _require_shared_stateful_checkpoint(
+                fake_spark,
+                "/tmp/oleander-public-stream-sentiment-checkpoint",
+                "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
+            )
+
+        self.assertEqual(context.exception.code, 3)
+
+    def test_stateful_checkpoint_accepts_s3_on_cluster(self) -> None:
+        fake_spark = SimpleNamespace(
+            sparkContext=SimpleNamespace(master="custom:emr-serverless")
+        )
+
+        _require_shared_stateful_checkpoint(
+            fake_spark,
+            "s3a://bucket/oleander/public-stream/sentiment-v2",
+            "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
         )
 
     def test_count_words_handles_apostrophes_and_dashes(self) -> None:
