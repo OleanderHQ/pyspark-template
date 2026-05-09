@@ -4,7 +4,7 @@ import json
 import os
 import re
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from urllib.parse import urlparse
 
 from pyspark.sql import DataFrame, SparkSession
@@ -30,6 +30,9 @@ _DEFAULT_PUBLIC_STREAM_CHECKPOINT_LOCATION = (
 _DEFAULT_SENTIMENT_WINDOW_CHECKPOINT_LOCATION = (
     "s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v1"
 )
+_OLEANDER_APP_STATE_DIR_CONF = "spark.oleander.app.state.dir"
+_PUBLIC_STREAM_CHECKPOINT_SUFFIX = "public-stream/checkpoints/messages-v1"
+_SENTIMENT_WINDOW_CHECKPOINT_SUFFIX = "public-stream/checkpoints/sentiment-v1"
 
 
 def _require_env(name: str) -> str:
@@ -102,6 +105,23 @@ def _require_shared_stateful_checkpoint(
         file=sys.stderr,
     )
     sys.exit(3)
+
+
+def _checkpoint_location(
+    spark: SparkSession,
+    env_var_name: str,
+    default_location: str,
+    suffix: str,
+) -> str:
+    env_location = os.getenv(env_var_name)
+    if env_location:
+        return env_location
+
+    state_dir = spark.conf.get(_OLEANDER_APP_STATE_DIR_CONF, "").strip()
+    if state_dir:
+        return f"{state_dir.rstrip('/')}/{suffix}"
+
+    return default_location
 
 
 def _parse_jdbc_url(database_url: str) -> tuple[str, dict[str, str]]:
@@ -492,10 +512,7 @@ def main() -> None:
         iceberg_table=os.getenv(
             "ICEBERG_TABLE", "oleander.default.public_stream_messages"
         ),
-        checkpoint_location=os.getenv(
-            "PUBLIC_STREAM_CHECKPOINT_LOCATION",
-            _DEFAULT_PUBLIC_STREAM_CHECKPOINT_LOCATION,
-        ),
+        checkpoint_location=_DEFAULT_PUBLIC_STREAM_CHECKPOINT_LOCATION,
         iceberg_compaction_interval_batches=_env_int(
             "ICEBERG_COMPACTION_INTERVAL_BATCHES",
             5,
@@ -515,16 +532,29 @@ def main() -> None:
         sentiment_window_table=os.getenv(
             "SENTIMENT_WINDOW_TABLE", "public_stream_sentiment_windows"
         ),
-        sentiment_window_checkpoint_location=os.getenv(
-            "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
-            _DEFAULT_SENTIMENT_WINDOW_CHECKPOINT_LOCATION,
-        ),
+        sentiment_window_checkpoint_location=_DEFAULT_SENTIMENT_WINDOW_CHECKPOINT_LOCATION,
     )
 
     spark = (
         SparkSession.builder
         .appName("oleander-public-stream-word-count")
         .getOrCreate()
+    )
+
+    config = replace(
+        config,
+        checkpoint_location=_checkpoint_location(
+            spark,
+            "PUBLIC_STREAM_CHECKPOINT_LOCATION",
+            _DEFAULT_PUBLIC_STREAM_CHECKPOINT_LOCATION,
+            _PUBLIC_STREAM_CHECKPOINT_SUFFIX,
+        ),
+        sentiment_window_checkpoint_location=_checkpoint_location(
+            spark,
+            "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
+            _DEFAULT_SENTIMENT_WINDOW_CHECKPOINT_LOCATION,
+            _SENTIMENT_WINDOW_CHECKPOINT_SUFFIX,
+        ),
     )
 
     _fail_if_local_checkpoint_on_cluster(

@@ -116,8 +116,8 @@ Set these in the oleander UI or API before submitting the job.
 
 | Variable | Description |
 | --- | --- |
-| `PUBLIC_STREAM_CHECKPOINT_LOCATION` | Durable checkpoint path (e.g. `s3a://bucket/checkpoint`). Defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v1`. |
-| `SENTIMENT_WINDOW_CHECKPOINT_LOCATION` | Durable checkpoint path for the sentiment window stream (e.g. `s3a://bucket/sentiment-window-checkpoint`). Defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v1`. |
+| `PUBLIC_STREAM_CHECKPOINT_LOCATION` | Durable checkpoint path (e.g. `s3a://bucket/checkpoint`). Overrides `spark.oleander.app.state.dir`; otherwise defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v1`. |
+| `SENTIMENT_WINDOW_CHECKPOINT_LOCATION` | Durable checkpoint path for the sentiment window stream (e.g. `s3a://bucket/sentiment-window-checkpoint`). Overrides `spark.oleander.app.state.dir`; otherwise defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v1`. |
 | `ALLOW_LOCAL_STREAMING_CHECKPOINTS` | Allow `/tmp` checkpoint paths on non-local Spark masters. Defaults to `1`; set to `0` to require cluster-visible checkpoint storage. |
 | `POSTGRES_TABLE` | Target Postgres table name (default `public_stream_messages`) |
 | `SENTIMENT_WINDOW_TABLE` | Target Postgres table for sentiment windows (default `public_stream_sentiment_windows`) |
@@ -136,9 +136,11 @@ PUBLIC_STREAM_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-
 SENTIMENT_WINDOW_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v1
 ```
 
-For EMR Serverless, the sentiment window stream requires `SENTIMENT_WINDOW_CHECKPOINT_LOCATION`
-to be on shared storage such as S3. The job role must be able to list, read, write,
-and delete objects under both checkpoint prefixes.
+On Oleander, the job derives both checkpoint locations from
+`spark.conf.get("spark.oleander.app.state.dir")` when explicit checkpoint env vars
+are not set. For EMR Serverless, the sentiment window stream requires the resolved
+checkpoint path to be on shared storage such as S3. The job role must be able to
+list, read, write, and delete objects under both checkpoint prefixes.
 
 ### Conditional (Kafka authentication)
 

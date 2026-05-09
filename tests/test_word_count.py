@@ -4,6 +4,7 @@ import sys
 import unittest
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import patch
 
 APP_ROOT = Path(__file__).resolve().parents[1]
 if str(APP_ROOT) not in sys.path:
@@ -20,6 +21,7 @@ from app.word_count import (
     tokenize,
 )
 from entrypoint import (
+    _checkpoint_location,
     _iceberg_rewrite_data_files_sql,
     _is_local_tmp_checkpoint,
     _late_messages_sql,
@@ -85,6 +87,46 @@ class PublicStreamSparkTests(unittest.TestCase):
             "s3a://bucket/oleander/public-stream/sentiment-v2",
             "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
         )
+
+    def test_checkpoint_location_uses_oleander_state_dir(self) -> None:
+        fake_spark = SimpleNamespace(
+            conf=SimpleNamespace(
+                get=lambda key, default: "s3a://bucket/apps/job-state/"
+                if key == "spark.oleander.app.state.dir"
+                else default
+            )
+        )
+
+        with patch.dict("os.environ", {}, clear=True):
+            self.assertEqual(
+                _checkpoint_location(
+                    fake_spark,
+                    "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
+                    "s3a://fallback/checkpoint",
+                    "public-stream/checkpoints/sentiment-v1",
+                ),
+                "s3a://bucket/apps/job-state/public-stream/checkpoints/sentiment-v1",
+            )
+
+    def test_checkpoint_location_env_overrides_oleander_state_dir(self) -> None:
+        fake_spark = SimpleNamespace(
+            conf=SimpleNamespace(get=lambda _key, _default: "s3a://bucket/apps/job-state")
+        )
+
+        with patch.dict(
+            "os.environ",
+            {"PUBLIC_STREAM_CHECKPOINT_LOCATION": "s3a://override/messages"},
+            clear=True,
+        ):
+            self.assertEqual(
+                _checkpoint_location(
+                    fake_spark,
+                    "PUBLIC_STREAM_CHECKPOINT_LOCATION",
+                    "s3a://fallback/checkpoint",
+                    "public-stream/checkpoints/messages-v1",
+                ),
+                "s3a://override/messages",
+            )
 
     def test_count_words_handles_apostrophes_and_dashes(self) -> None:
         self.assertEqual(count_words("Oleander's stream keeps-on flowing"), 4)
