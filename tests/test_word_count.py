@@ -13,19 +13,21 @@ if str(APP_ROOT) not in sys.path:
 from app.word_count import (
     STREAM_KEY,
     StreamMessage,
+    build_batch_word_deltas,
     count_words,
     coerce_messages,
     compute_sentiment,
-    build_batch_word_deltas,
     summarize_inserted_messages,
     tokenize,
 )
-from entrypoint import (
-    _checkpoint_location,
+from app.public_stream import (
+    checkpoint_location,
+    is_local_tmp_checkpoint,
+    require_shared_stateful_checkpoint,
+)
+from entrypoint_messages_v2 import (
     _iceberg_rewrite_data_files_sql,
-    _is_local_tmp_checkpoint,
     _late_messages_sql,
-    _require_shared_stateful_checkpoint,
     _should_compact_batch,
 )
 
@@ -57,11 +59,11 @@ class PublicStreamSparkTests(unittest.TestCase):
         self.assertIn("event_time IS NOT NULL", sql)
 
     def test_local_tmp_checkpoint_detection_handles_file_uris(self) -> None:
-        self.assertTrue(_is_local_tmp_checkpoint("/tmp/stream-checkpoint"))
-        self.assertTrue(_is_local_tmp_checkpoint("file:/tmp/stream-checkpoint"))
-        self.assertTrue(_is_local_tmp_checkpoint("file:///tmp/stream-checkpoint"))
-        self.assertFalse(_is_local_tmp_checkpoint("s3a://bucket/stream-checkpoint"))
-        self.assertFalse(_is_local_tmp_checkpoint("/var/tmp/stream-checkpoint"))
+        self.assertTrue(is_local_tmp_checkpoint("/tmp/stream-checkpoint"))
+        self.assertTrue(is_local_tmp_checkpoint("file:/tmp/stream-checkpoint"))
+        self.assertTrue(is_local_tmp_checkpoint("file:///tmp/stream-checkpoint"))
+        self.assertFalse(is_local_tmp_checkpoint("s3a://bucket/stream-checkpoint"))
+        self.assertFalse(is_local_tmp_checkpoint("/var/tmp/stream-checkpoint"))
 
     def test_stateful_checkpoint_requires_shared_storage_on_cluster(self) -> None:
         fake_spark = SimpleNamespace(
@@ -69,7 +71,7 @@ class PublicStreamSparkTests(unittest.TestCase):
         )
 
         with self.assertRaises(SystemExit) as context:
-            _require_shared_stateful_checkpoint(
+            require_shared_stateful_checkpoint(
                 fake_spark,
                 "/tmp/oleander-public-stream-sentiment-checkpoint",
                 "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
@@ -82,7 +84,7 @@ class PublicStreamSparkTests(unittest.TestCase):
             sparkContext=SimpleNamespace(master="custom:emr-serverless")
         )
 
-        _require_shared_stateful_checkpoint(
+        require_shared_stateful_checkpoint(
             fake_spark,
             "s3a://bucket/oleander/public-stream/sentiment-v2",
             "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
@@ -99,7 +101,7 @@ class PublicStreamSparkTests(unittest.TestCase):
 
         with patch.dict("os.environ", {}, clear=True):
             self.assertEqual(
-                _checkpoint_location(
+                checkpoint_location(
                     fake_spark,
                     "SENTIMENT_WINDOW_CHECKPOINT_LOCATION",
                     "s3a://fallback/checkpoint",
@@ -119,7 +121,7 @@ class PublicStreamSparkTests(unittest.TestCase):
             clear=True,
         ):
             self.assertEqual(
-                _checkpoint_location(
+                checkpoint_location(
                     fake_spark,
                     "PUBLIC_STREAM_CHECKPOINT_LOCATION",
                     "s3a://fallback/checkpoint",
