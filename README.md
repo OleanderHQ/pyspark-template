@@ -10,6 +10,7 @@ The repository uses:
 - Docker to build the deployment virtual environment artifact
 
 You can rename `entrypoint.py` and `mylib/` to fit your job layout.
+If you rename `mylib/`, update `PYFILES_MODULE` in `spark-job.mk` so `make pyfiles` zips the right package.
 
 ## Manage dependencies with uv
 
@@ -45,6 +46,8 @@ Outputs:
 
 - `out/pyfiles.zip`
 - `out/environment.tar.gz`
+
+`make pyfiles` uses `PYFILES_MODULE` from `spark-job.mk`, defaulting to `mylib`.
 
 Build artifacts individually:
 

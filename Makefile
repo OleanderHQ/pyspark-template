@@ -1,17 +1,21 @@
 # Local development stays on the host with uv:
 #   uv sync
-#   uv run python main.py
+#   uv run python entrypoint.py
 #
 # Build deployment artifacts for Oleander-managed Spark.
 # Outputs: out/pyfiles.zip, out/environment.tar.gz
+
+PYFILES_CONFIG := $(wildcard spark-job.mk)
+-include $(PYFILES_CONFIG)
 
 PYTHON_VERSION := 3.11
 DOCKER_PLATFORM := linux/amd64
 DOCKER_TARGET := artifact
 OUT_DIR := out
+PYFILES_MODULE ?= mylib
 PYFILES_NAME := pyfiles.zip
 PYFILES_PATH := $(OUT_DIR)/$(PYFILES_NAME)
-PYFILES_SOURCES := $(shell find mylib -type f ! -path '*/__pycache__/*' ! -name '*.pyc' | sort)
+PYFILES_SOURCES := $(shell find $(PYFILES_MODULE) -type f ! -path '*/__pycache__/*' ! -name '*.pyc' | sort)
 ENVIRONMENT_NAME := environment.tar.gz
 ENVIRONMENT_PATH := $(OUT_DIR)/$(ENVIRONMENT_NAME)
 
@@ -29,9 +33,9 @@ environment: $(ENVIRONMENT_PATH)
 $(OUT_DIR):
 	mkdir -p $(OUT_DIR)
 
-$(PYFILES_PATH): Makefile mylib $(PYFILES_SOURCES) | $(OUT_DIR)
+$(PYFILES_PATH): Makefile $(PYFILES_CONFIG) $(PYFILES_MODULE) $(PYFILES_SOURCES) | $(OUT_DIR)
 	rm -f $@
-	zip -rq $@ mylib -x '*/__pycache__/*' '*.pyc'
+	zip -rq $@ $(PYFILES_MODULE) -x '*/__pycache__/*' '*.pyc'
 
 $(ENVIRONMENT_PATH): Makefile Dockerfile pyproject.toml uv.lock | $(OUT_DIR)
 	docker build \
