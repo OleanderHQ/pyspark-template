@@ -106,6 +106,15 @@ oleander spark jobs submit entrypoint_messages_v2.py \
   --wait
 ```
 
+```bash
+oleander spark jobs submit entrypoint_sentiment_windows_v2.py \
+  --namespace streaming \
+  --name public_stream_sentiment_windows \
+  --mode STREAMING \
+  --packages org.apache.spark:spark-sql-kafka-0-10_2.12:3.5.7,org.postgresql:postgresql:42.7.4 \
+  --wait
+```
+
 Adjust `--namespace`, `--name`, and any other submit options for your job.
 
 Run the low-latency message writer and the watermarked sentiment windows as
