@@ -18,11 +18,11 @@ DEFAULT_MESSAGES_CHECKPOINT_LOCATION = (
     "s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v4"
 )
 DEFAULT_SENTIMENT_WINDOW_CHECKPOINT_LOCATION = (
-    "s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v4"
+    "s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v5"
 )
 
 MESSAGES_CHECKPOINT_SUFFIX = "public-stream/checkpoints/messages-v4"
-SENTIMENT_WINDOW_CHECKPOINT_SUFFIX = "public-stream/checkpoints/sentiment-v4"
+SENTIMENT_WINDOW_CHECKPOINT_SUFFIX = "public-stream/checkpoints/sentiment-v5"
 
 MESSAGE_SCHEMA = StructType([
     StructField("id", StringType()),

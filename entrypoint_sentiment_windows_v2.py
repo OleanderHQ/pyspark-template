@@ -55,19 +55,30 @@ def _with_sentiment_checkpoint(
 
 
 def _sentiment_windows_df(parsed: DataFrame, config: SentimentWindowConfig) -> DataFrame:
+    # Scores are in [0, 1] (see compute_sentiment). Matches frontend: positive >= 0.65,
+    # negative <= 0.35; neutral is strictly between (exclusive of those thresholds).
     enriched = (
         parsed
         .filter(col("event_time").isNotNull())
         .withWatermark("event_time", f"{config.watermark_threshold_seconds} seconds")
         .withColumn("sentiment_score", _SENTIMENT_UDF(col("body")))
-        .withColumn("is_positive", when(col("sentiment_score") > 0.5, 1).otherwise(0))
+        .withColumn("is_positive", when(col("sentiment_score") >= 0.65, 1).otherwise(0))
+        .withColumn(
+            "is_neutral",
+            when(
+                (col("sentiment_score") > 0.35) & (col("sentiment_score") < 0.65),
+                1,
+            ).otherwise(0),
+        )
+        .withColumn("is_negative", when(col("sentiment_score") <= 0.35, 1).otherwise(0))
     )
     return (
         enriched
         .groupBy(window(col("event_time"), f"{config.window_minutes} minutes"))
         .agg(
             spark_sum("is_positive").alias("positive_count"),
-            (count("*") - spark_sum("is_positive")).alias("negative_count"),
+            spark_sum("is_negative").alias("negative_count"),
+            spark_sum("is_neutral").alias("neutral_count"),
             count("*").alias("total_count"),
             avg("sentiment_score").alias("avg_sentiment"),
         )
@@ -76,6 +87,7 @@ def _sentiment_windows_df(parsed: DataFrame, config: SentimentWindowConfig) -> D
             col("window.end").alias("window_end"),
             col("positive_count"),
             col("negative_count"),
+            col("neutral_count"),
             col("total_count"),
             col("avg_sentiment"),
         )

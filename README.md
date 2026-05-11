@@ -157,7 +157,7 @@ Set these in the oleander UI or API before submitting the job.
 | Variable | Description |
 | --- | --- |
 | `PUBLIC_STREAM_CHECKPOINT_LOCATION` | Durable checkpoint path (e.g. `s3a://bucket/checkpoint`). Overrides `spark.oleander.app.state.dir`; otherwise defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v4`. |
-| `SENTIMENT_WINDOW_CHECKPOINT_LOCATION` | Durable checkpoint path for the sentiment window stream (e.g. `s3a://bucket/sentiment-window-checkpoint`). Overrides `spark.oleander.app.state.dir`; otherwise defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v4`. |
+| `SENTIMENT_WINDOW_CHECKPOINT_LOCATION` | Durable checkpoint path for the sentiment window stream (e.g. `s3a://bucket/sentiment-window-checkpoint`). Overrides `spark.oleander.app.state.dir`; otherwise defaults to `s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v5`. Bump the `sentiment-v*` segment when the streaming aggregation state schema changes. |
 | `ALLOW_LOCAL_STREAMING_CHECKPOINTS` | Allow `/tmp` checkpoint paths on non-local Spark masters. Defaults to `1`; set to `0` to require cluster-visible checkpoint storage. |
 | `POSTGRES_TABLE` | Target Postgres table name (default `public_stream_messages`) |
 | `STATE_TABLE` | Postgres table for rolling stream analytics upserts (default `public_stream_state`). Updated by `entrypoint_messages_v2.py` after each micro-batch. |
@@ -181,7 +181,7 @@ locations on shared storage. Do not reuse the broken `/tmp` checkpoint path:
 
 ```bash
 PUBLIC_STREAM_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/messages-v4
-SENTIMENT_WINDOW_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v4
+SENTIMENT_WINDOW_CHECKPOINT_LOCATION=s3a://stream-time-window-579897423473-us-east-2-an/public-stream/checkpoints/sentiment-v5
 ```
 
 On Oleander, the job derives checkpoint locations from
