@@ -30,6 +30,18 @@ oleander spark jobs submit my_job.py \
 
 `--wait` blocks until the run reaches a terminal state (`COMPLETE`, `FAIL`, or `ABORT`).
 
+With explicit driver and executor sizing:
+
+```bash
+oleander spark jobs submit my_job.py \
+  --namespace my_namespace \
+  --name my-job-name \
+  --driverMachineType spark.8.c \
+  --executorMachineType spark.8.c \
+  --executorNumbers 4 \
+  --wait
+```
+
 ## TypeScript SDK submission
 
 Use `@oleanderhq/sdk` to submit jobs programmatically:
@@ -95,31 +107,69 @@ throw new Error(`Timeout waiting for run ${runId}`);
 
 Always handle `RunNotFoundError` — a freshly submitted run may not be immediately visible.
 
-## Cluster options
-
-|Cluster|Use case|
-|---|---|
-|`"oleander"`|Default managed Spark cluster|
-|`"emr-serverless"`|AWS EMR Serverless|
-|`"glue"`|AWS Glue|
-
-Use `"oleander"` unless you have a specific reason to use a different backend.
-
 ## Machine types
 
-Machine types follow the pattern `spark.<size>.<class>`:
+Machine types follow the pattern `spark.<size>.<class>`. Default: `spark.1.b` for both driver and executors.
 
-- Classes: `b` (balanced), `c` (compute), `m` (memory)
-- Sizes: `1` through `16`
-- Default: `spark.1.b` for both driver and executors
+**Compute (`c`)** — 2:1 RAM:vCPU, CPU-bound transformations:
 
-Choose memory-optimized (`m`) when joins or aggregations spill. Choose compute-optimized (`c`) for CPU-bound transformations.
+| Type       | vCPU | RAM   |
+| ---------- | ---- | ----- |
+| spark.1.c  |    1 |  2 GB |
+| spark.2.c  |    2 |  4 GB |
+| spark.4.c  |    4 |  8 GB |
+| spark.8.c  |    8 | 16 GB |
+| spark.16.c |   16 | 32 GB |
+
+**Balanced (`b`)** — 4:1 RAM:vCPU, general purpose:
+
+| Type       | vCPU | RAM   |
+| ---------- | ---- | ----- |
+| spark.1.b  |    1 |  4 GB |
+| spark.2.b  |    2 |  8 GB |
+| spark.4.b  |    4 | 16 GB |
+| spark.8.b  |    8 | 32 GB |
+| spark.16.b |   16 | 64 GB |
+
+**Memory (`m`)** — 8:1 RAM:vCPU, joins/aggregations that spill:
+
+| Type       | vCPU | RAM    |
+| ---------- | ---- | ------ |
+| spark.1.m  |    1 |   8 GB |
+| spark.2.m  |    2 |  16 GB |
+| spark.4.m  |    4 |  30 GB |
+| spark.8.m  |    8 |  60 GB |
+| spark.16.m |   16 | 120 GB |
 
 ## Executor count
 
 - Default: 2 executors
 - Range: 1–20
 - Scale up for large data volumes; keep low for small or exploratory jobs
+
+## Testing results after a job run
+
+### Ad-hoc SQL query
+
+Run a single SQL query against the lake and print results as a table:
+
+```bash
+oleander query "SELECT * FROM oleander.my_namespace.my_table LIMIT 20"
+```
+
+Save results as a new table (named by query hash):
+
+```bash
+oleander query "SELECT id, sum(value) FROM oleander.my_namespace.my_table GROUP BY 1" --save
+```
+
+### Interactive DuckDB terminal
+
+Launch a full DuckDB REPL with all registered catalogs pre-attached:
+
+```bash
+oleander duckdb
+```
 
 ## Script structure conventions
 
