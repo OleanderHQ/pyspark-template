@@ -55,3 +55,49 @@ Use this skill for general Apache Spark guidance when optimizing performance, re
 - Use `explain()` and execution metrics/logs to inspect physical plans and shuffle boundaries.
 - Track row counts and key metrics at major steps.
 - Compare runtime and output quality after each optimization pass.
+
+## 9) Set Structured Streaming checkpoints
+
+Every Structured Streaming query needs a stable checkpoint location. The
+checkpoint stores progress metadata and, for stateful queries such as windows,
+state-store data that Spark needs to recover correctly.
+
+Use shared storage for cluster runs, not local `/tmp`, because executors must be
+able to see the same checkpoint path.
+
+oleander provides `spark.oleander.app.state.dir` as a shared application state
+directory that users can use for streaming checkpoints.
+
+```python
+from pyspark.sql import SparkSession
+from pyspark.sql.functions import col, count, window
+
+spark = SparkSession.builder.appName("message-counts").getOrCreate()
+
+state_dir = spark.conf.get("spark.oleander.app.state.dir", "").strip()
+checkpoint = f"{state_dir.rstrip('/')}/public-stream/checkpoints/message-counts"
+
+events = (
+    spark.readStream.format("kafka")
+    .option("kafka.bootstrap.servers", "localhost:9092")
+    .option("subscribe", "messages")
+    .load()
+)
+
+counts = (
+    events.selectExpr("CAST(value AS STRING) AS body", "timestamp AS event_time")
+    .withWatermark("event_time", "1 minute")
+    .groupBy(window(col("event_time"), "1 minute"))
+    .agg(count("*").alias("message_count"))
+)
+
+query = (
+    counts.writeStream
+    .format("console")
+    .outputMode("append")
+    .option("checkpointLocation", checkpoint)
+    .start()
+)
+
+query.awaitTermination()
+```

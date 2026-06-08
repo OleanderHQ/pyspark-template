@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "skills": {
+    "oleander-iceberg-catalog": {
+      "source": "oleanderHQ/skills",
+      "sourceType": "github",
+      "skillPath": "skills/oleander-iceberg-catalog/SKILL.md",
+      "computedHash": "49e767761a3347c1fa0954ed4c9f961f0151d03a7873b8ef492ec1fff516ec30"
+    },
+    "oleander-spark-lineage": {
+      "source": "oleanderHQ/skills",
+      "sourceType": "github",
+      "skillPath": "skills/oleander-spark-lineage/SKILL.md",
+      "computedHash": "f028d5b19b5c1c08fbd1922ca394c74362e7c1a13f907b3c3509b22cca69164a"
+    },
+    "oleander-spark-submit": {
+      "source": "oleanderHQ/skills",
+      "sourceType": "github",
+      "skillPath": "skills/oleander-spark-submit/SKILL.md",
+      "computedHash": "ecd276149284f9f6b4a22ae04e88260bccfab829e2629d5ca81fa25079a8f047"
+    },
+    "spark-best-practices": {
+      "source": "oleanderHQ/skills",
+      "sourceType": "github",
+      "skillPath": "skills/spark-best-practices/SKILL.md",
+      "computedHash": "22a187dea0022fd3142f584bb6374b3a6486c82bdd90affecd47cfdfc742dc31"
+    }
+  }
+}
