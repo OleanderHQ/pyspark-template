@@ -35,7 +35,7 @@ append_unique_package() {
   local existing
 
   [[ -n "$package" ]] || return 0
-  for existing in "${packages[@]}"; do
+  for existing in ${packages[@]+"${packages[@]}"}; do
     [[ "$existing" == "$package" ]] && return 0
   done
   packages+=("$package")
@@ -46,7 +46,7 @@ append_unique_extension() {
   local existing
 
   [[ -n "$extension" ]] || return 0
-  for existing in "${extensions[@]}"; do
+  for existing in ${extensions[@]+"${extensions[@]}"}; do
     [[ "$existing" == "$extension" ]] && return 0
   done
   extensions+=("$extension")
@@ -342,4 +342,4 @@ wrapper_args=(
   --conf "spark.sql.extensions=${extensions_csv}"
 )
 
-exec "$SPARK_SUBMIT_BIN" "${wrapper_args[@]}" "${catalog_args[@]}" "${user_args[@]}"
+exec "$SPARK_SUBMIT_BIN" "${wrapper_args[@]}" ${catalog_args[@]+"${catalog_args[@]}"} ${user_args[@]+"${user_args[@]}"}
