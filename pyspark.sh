@@ -35,7 +35,7 @@ append_unique_package() {
   local existing
 
   [[ -n "$package" ]] || return 0
-  for existing in ${packages[@]+"${packages[@]}"}; do
+  for existing in "${packages[@]}"; do
     [[ "$existing" == "$package" ]] && return 0
   done
   packages+=("$package")
@@ -46,7 +46,7 @@ append_unique_extension() {
   local existing
 
   [[ -n "$extension" ]] || return 0
-  for existing in ${extensions[@]+"${extensions[@]}"}; do
+  for existing in "${extensions[@]}"; do
     [[ "$existing" == "$extension" ]] && return 0
   done
   extensions+=("$extension")
@@ -141,7 +141,6 @@ parse_user_args() {
 generate_oleander_conf_args() {
   python3 - "$SCRIPT_NAME" "$OLEANDER_ICEBERG_REST_URI" "$S3TABLES_REST_URI_TEMPLATE" <<'PY'
 import json
-import re
 import subprocess
 import sys
 
@@ -241,24 +240,6 @@ def emit_s3tables_catalog(name, properties, credentials):
         emit_conf(f"{prefix}.s3.session-token", str(session_token))
 
 
-# Older CLIs report catalog types as display labels, so catalogs would be skipped.
-MIN_OLEANDER_VERSION = (0, 25, 2)
-
-
-def check_oleander_version():
-    proc = subprocess.run(["oleander", "--version"], stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
-    match = re.search(r"(\d+)\.(\d+)\.(\d+)", proc.stdout)
-    if proc.returncode != 0 or match is None:
-        fail("could not determine the oleander CLI version from `oleander --version`")
-
-    found = tuple(int(part) for part in match.groups())
-    if found < MIN_OLEANDER_VERSION:
-        minimum = ".".join(str(part) for part in MIN_OLEANDER_VERSION)
-        fail(f"oleander CLI {minimum} or newer is required, found {match.group(0)}. Run `oleander upgrade`.")
-
-
-check_oleander_version()
-
 catalogs_doc = run_json(["oleander", "catalogs", "list", "-o", "json"])
 catalogs = catalogs_doc.get("catalogs") if isinstance(catalogs_doc, dict) else catalogs_doc
 if catalogs is None:
@@ -328,5 +309,4 @@ wrapper_args=(
   --conf "spark.sql.extensions=${extensions_csv}"
 )
 
-# bash 3.2 (macOS) treats "${empty[@]}" as unbound under `set -u`.
-exec "$PYSPARK_BIN" "${wrapper_args[@]}" ${catalog_args[@]+"${catalog_args[@]}"} ${user_args[@]+"${user_args[@]}"}
+exec "$PYSPARK_BIN" "${wrapper_args[@]}" "${catalog_args[@]}" "${user_args[@]}"
