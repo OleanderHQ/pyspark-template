@@ -273,24 +273,24 @@ def emit_s3tables_catalog(name, properties, credentials):
         emit_conf(f"{prefix}.s3.session-token", str(session_token))
 
 
-catalogs_doc = run_json(["oleander", "catalogs", "list", "--json"])
+catalogs_doc = run_json(["oleander", "catalogs", "list", "-o", "json"])
 catalogs = catalogs_doc.get("catalogs") if isinstance(catalogs_doc, dict) else catalogs_doc
 if catalogs is None:
     catalogs = []
 if not isinstance(catalogs, list):
-    fail("oleander catalogs list --json returned an unexpected shape")
+    fail("oleander catalogs list -o json returned an unexpected shape")
 
 for catalog in catalogs:
     if not isinstance(catalog, dict):
-        fail("oleander catalogs list --json returned a non-object catalog entry")
+        fail("oleander catalogs list -o json returned a non-object catalog entry")
 
-    name = required(catalog, "name", "catalog entry")
-    catalog_type = str(catalog.get("type", "")).lower()
-    properties = catalog.get("properties") or {}
+    name = required(catalog, "catalog", "catalog entry")
+    properties = run_json(["oleander", "catalogs", "get", name, "-o", "json"])
     if not isinstance(properties, dict):
-        fail(f"catalog {name} properties must be an object")
+        fail(f"oleander catalogs get {name} -o json returned an unexpected shape")
+    catalog_type = str(properties.get("type", "")).lower()
 
-    credentials = run_json(["oleander", "catalogs", "credentials", name, "--json"])
+    credentials = run_json(["oleander", "catalogs", "credentials", name, "-o", "json"])
     if not isinstance(credentials, dict):
         fail(f"oleander credentials for catalog {name} returned an unexpected shape")
 
